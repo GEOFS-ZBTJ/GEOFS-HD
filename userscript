@@ -1,0 +1,135 @@
+//==UserScript==
+//@name GeoFS微软航拍HD不打架不发白
+//@namespace geofs-ms-hd
+//@version 2.1.0
+//@description 微软Bing航拍叠加在GeoFS原生图层之上，低空才显示，防空战格子打架+防地面发白
+//@match https://www.geo-fs.com/geofs.php*
+//@match https://geo-fs.com/geofs.php*
+//@match https://*.geo-fs.com/geofs.php*
+//@grant none
+//@run-at document-idle
+//@license MIT
+//==/UserScript==
+(function(){
+"use strict";
+var MS="https://ecn.t%d.tiles.virtualearth.net/tiles/a%s.jpeg?g=1";
+var AG=["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}","https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"];
+var c=null,v=null,hd=null,hdon=false,thr=5000,aw=true,awOn=null,t3=null,mo=0,ao=0,raf=null,st=0,panel=null,uiT=0,dg=false,sx=0,sy=0,px=0,py=0,qq=[],busy=false;
+function tip(t,ok,ms){qq.push([t,ok,ms||2600]);if(!busy)pop()}
+function pop(){if(!qq.length){busy=false;return}busy=true;var a=qq.shift(),d=document.createElement("div");d.style.cssText="position:fixed;top:18px;left:50%;transform:translateX(-50%);background:"+(a[1]?"rgba(0,150,60,.9)":"rgba(185,25,25,.9)")+";color:#fff;padding:9px 18px;border-radius:8px;z-index:99999;font-size:13px;font-weight:600;transition:all .6s;pointer-events:none;max-width:88vw;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.3)";d.textContent=a[0];document.body.appendChild(d);setTimeout(function(){d.style.opacity=0;d.style.transform="translateX(-50%) translateY(-60px)";setTimeout(function(){d.remove();pop()},600)},a[2])}
+function ini(){v=(window.geofs&&geofs.api&&geofs.api.viewer)||null;c=window.Cesium||(window.geofs&&geofs.api&&geofs.api.Cesium)||null;return!!(c&&v)}
+function quad(z,x,y){var s="",i,m;for(i=z;i>0;i--){m=1<<(i-1);s+=((x&m)?1:0)+((y&m)?2:0)}return s}
+function tout(ms){return new Promise(function(_,re){setTimeout(function(){re(new Error("timeout"))},ms)})}
+function msProv(){
+class P extends c.UrlTemplateImageryProvider{
+constructor(){super({url:"https://ecn.t0.tiles.virtualearth.net/tiles/a000.jpeg?g=1",maximumLevel:19,minimumLevel:0,tilingScheme:new c.WebMercatorTilingScheme(),credit:new c.Credit("Microsoft Bing Aerial")})}
+requestImage(x,y,l,r){
+var s=MS.replace("%d",(x+y)%4).replace("%s",quad(l,x,y));
+if(c.ImageryProvider&&c.ImageryProvider.loadImage)return c.ImageryProvider.loadImage(this,s);
+return new c.Resource({url:s}).fetchImage({request:r});
+}
+}
+return new P();
+}
+function look(){if(hd){hd.brightness=.94;hd.contrast=1.12;hd.saturation=1.06;hd.gamma=.98}}
+async function enable(){
+if(!ini()){tip("❌GeoFS还没加载好",0);return}
+if(hd){hdon=true;look();tick(true);return}
+var p=null,lb="",ok=false,i;
+try{p=msProv();await Promise.race([p.readyPromise,tout(3000)]);lb="微软Bing航拍";ok=true}catch(e){p=null}
+if(!ok){for(i=0;i<AG.length&&!p;i++){try{var q=new c.UrlTemplateImageryProvider({url:AG[i],maximumLevel:19,credit:new c.Credit("ArcGIS")});await Promise.race([q.readyPromise,tout(3000)]);p=q;lb="ArcGIS航拍(备用)";ok=true}catch(e){}}}
+if(!p){tip("❌微软航拍不可用，原生图层保持原样",0,4000);return}
+hd=v.imageryLayers.addImageryProvider(p);look();hdon=true;hd.show=false;tick(true);
+tip("✅"+lb+"已叠加，低空自动切高清",1,3500);
+}
+function disable(){
+hdon=false;
+if(hd&&v){v.imageryLayers.remove(hd,true);hd=null}
+if(aw&&v){v.scene.fog.enabled=true;v.scene.globe.showGroundAtmosphere=true;awOn=null}
+if(!t3)tick(false);
+tip("🗑HD叠加层已移除，原生图层不变",1);
+}
+function tick(on){
+if(!on){if(raf){cancelAnimationFrame(raf);raf=null}return}
+if(raf)return;
+(function f(){
+if(!v){raf=requestAnimationFrame(f);return}
+if(!hdon&&!t3){raf=null;return}
+raf=requestAnimationFrame(f);
+var h=v.camera.positionCartographic.height,a;
+if(hd&&hdon){
+a=h>=thr?0:h<=thr*.7?1:(thr-h)/(thr*.3);
+hd.alpha=a;hd.show=a>.02;
+}
+if(hdon&&aw){
+var need=h<thr*.9;
+if(need&&awOn!==true){v.scene.globe.showGroundAtmosphere=false;v.scene.fog.enabled=false;awOn=true}
+else if(!need&&awOn!==false){v.scene.globe.showGroundAtmosphere=true;v.scene.fog.enabled=true;awOn=false}
+}
+if(t3){
+var now=performance.now();
+if(now-st>2000){st=now;terr()}
+var tot=ao+mo,cc2=c.Cartographic.fromCartesian(v.camera.position);
+if(cc2){var s0=c.Cartesian3.fromRadians(cc2.longitude,cc2.latitude,0),s1=c.Cartesian3.fromRadians(cc2.longitude,cc2.latitude,tot),tr=c.Cartesian3.subtract(s1,s0,new c.Cartesian3());t3.modelMatrix=c.Matrix4.fromTranslation(tr)}
+}
+var t=performance.now();
+if(panel&&t-uiT>400){uiT=t;var g=panel.querySelector("#gst");if(g)g.textContent="高度 "+(h/1000).toFixed(1)+"km ｜ HD "+(hdon?(hd&&hd.show?"显示":"隐藏"):"关");var gv=panel.querySelector("#gov");if(gv)gv.textContent=Math.round(ao+mo)+" m"}
+})()
+}
+async function terr(){
+try{var tp=v.terrainProvider;if(!tp||!tp.ready)return;var p0=c.Cartographic.fromCartesian(v.camera.position);if(!p0)return;
+if(c.sampleTerrainMostDetailed){var r=await c.sampleTerrainMostDetailed(tp,[new c.Cartographic(p0.longitude,p0.latitude)]);if(r&&r[0]&&r[0].height!=null)ao=r[0].height}
+}catch(e){}
+}
+async function add3d(tk){
+if(!ini())return"❌未就绪";
+c.Ion.defaultAccessToken=tk;
+try{
+if(t3&&v.scene.primitives.contains(t3)){v.scene.primitives.remove(t3);t3=null}
+var ts;
+if(typeof c.createOsmBuildingsAsync==="function")ts=await c.createOsmBuildingsAsync();
+else ts=await c.Cesium3DTileset.fromIonAssetId(96188);
+await ts.readyPromise;v.scene.primitives.add(ts);t3=ts;tick(true);
+return"✅3D建筑已加载";
+}catch(e){return"❌"+(e.message||e)}
+}
+function rm3d(){if(v&&t3&&v.scene.primitives.contains(t3)){v.scene.primitives.remove(t3);t3=null;ao=0;if(!hdon)tick(false);tip("🗑3D建筑已移除",1)}}
+function ui(){
+if(panel){panel.remove();panel=null;return}
+if(document.getElementById("gpan"))return;
+var s=document.createElement("style");
+s.textContent="#gpan{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(18,20,28,.94);padding:18px;border-radius:14px;z-index:100000;width:296px;color:#fff;font-family:Segoe UI,sans-serif;font-size:13px;box-shadow:0 8px 26px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.14);cursor:move;user-select:none}#gpan .x{position:absolute;top:10px;right:10px;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:rgba(255,255,255,.1);cursor:pointer}#gpan h3{margin:0 0 10px;font-size:15px;text-align:center}#gpan .k{font-size:10px;letter-spacing:1px;color:#6aa0ff;margin:12px 0 6px;font-weight:700}#gpan button{width:100%;padding:7px 0;margin-bottom:5px;border:0;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;color:#fff;background:linear-gradient(135deg,#3a7bd5,#2a5ba0)}#gpan button.off{background:rgba(150,55,55,.8)}#gpan .row{display:flex;gap:6px}#gpan .row button{flex:1}#gpan input[type=text],#gpan input[type=password]{width:100%;box-sizing:border-box;background:rgba(20,30,52,.85);border:1px solid rgba(80,130,240,.3);border-radius:6px;color:#cfdcee;padding:6px 8px;font-size:12px;outline:none;margin-bottom:5px}#gpan .lab{display:flex;justify-content:space-between;font-size:11px;color:#8fb0cc;margin:8px 0 3px}#gpan input[type=range]{width:100%;height:5px;background:rgba(45,65,105,.85);border-radius:3px;-webkit-appearance:none;outline:none}#gpan input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;background:#5a9fff;border-radius:50%;cursor:pointer}#gpan #gst{margin-top:10px;padding:6px 8px;background:rgba(18,26,44,.8);border-radius:5px;font-size:11px;color:#7fa4c4;min-height:15px}";
+document.head.appendChild(s);
+panel=document.createElement("div");panel.id="gpan";
+panel.innerHTML='<div class="x" id="gx">✕</div><h3>🛰️ 微软航拍HD</h3><div class="k">图层</div><button id="gon">开启微软HD</button><button id="goff" class="off">关闭HD叠加</button><div class="k">显示高度</div><div class="lab"><span>超过此高度只用原生图</span><span id="gthv">5.0 km</span></div><input type="range" id="gth" min="1" max="15" step="0.5" value="5"><div class="k">防发白</div><button id="gaw">防发白：开</button><div class="k">3D 建筑</div><input id="gtk" type="password" placeholder="Cesium ion Token"><div class="row"><button id="gok">加载</button><button id="grm" class="off">移除</button></div><div class="lab"><span>建筑高度偏移</span><span id="gov">0 m</span></div><input type="range" id="gof" min="-80" max="80" step="1" value="0"><div id="gst"></div>';
+document.body.appendChild(panel);
+panel.querySelector("#gx").onclick=function(){panel.remove();panel=null};
+panel.querySelector("#gon").onclick=function(){enable()};
+panel.querySelector("#goff").onclick=function(){disable()};
+panel.querySelector("#gth").oninput=function(){thr=parseFloat(this.value)*1000;panel.querySelector("#gthv").textContent=parseFloat(this.value).toFixed(1)+" km"};
+panel.querySelector("#gaw").onclick=function(){aw=!aw;this.textContent="防发白："+(aw?"开":"关");if(!aw&&v){v.scene.fog.enabled=true;v.scene.globe.showGroundAtmosphere=true;awOn=null}};
+panel.querySelector("#gof").oninput=function(){mo=parseFloat(this.value)};
+panel.querySelector("#gok").onclick=async function(){var tk=panel.querySelector("#gtk").value.trim(),g=panel.querySelector("#gst");if(!tk){g.textContent="⚠请输入Token";return}g.textContent="⏳加载中...";var r=await add3d(tk);g.textContent=r};
+panel.querySelector("#grm").onclick=function(){rm3d()};
+panel.addEventListener("mousedown",function(e){if(e.target.closest("button,input,.x"))return;dg=true;sx=e.clientX;sy=e.clientY;var r=panel.getBoundingClientRect();px=r.left;py=r.top;e.preventDefault()});
+window.addEventListener("mousemove",function(e){if(!dg||!panel)return;var l=Math.max(0,Math.min(px+e.clientX-sx,innerWidth-panel.offsetWidth)),t=Math.max(0,Math.min(py+e.clientY-sy,innerHeight-panel.offsetHeight));panel.style.left=l+"px";panel.style.top=t+"px";panel.style.transform="none"});
+window.addEventListener("mouseup",function(){dg=false});
+}
+document.addEventListener("keydown",function(e){
+if(e.key==="Escape"&&panel){panel.remove();panel=null;return}
+var at=document.activeElement&&document.activeElement.tagName;
+if((e.key==="/"||e.key==="?")&&at!=="INPUT"&&at!=="TEXTAREA"){e.preventDefault();ui()}
+});
+function boot(){
+if(!ini())return false;
+tip("🛰微软航拍HD已启动，按 / 打开面板",1,4000);
+enable();
+return true;
+}
+var n=0,tm=setInterval(function(){
+if(boot()||++n>120)clearInterval(tm);
+},300);
+window.addEventListener("load",function(){n=0;if(boot())clearInterval(tm)});
+var ad=document.querySelector("body > div.geofs-adbanner.geofs-adsense-container");
+if(ad)ad.remove();
+})();
